@@ -38,6 +38,17 @@ class DatabaseManager:
                     buy_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            # Tabela konta demo
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS account (
+                    id INTEGER PRIMARY KEY,
+                    cash_balance REAL
+                )
+            ''')
+            # Inicjalizacja konta początkowym kapitałem
+            cursor.execute('SELECT COUNT(*) FROM account')
+            if cursor.fetchone()[0] == 0:
+                cursor.execute('INSERT INTO account (id, cash_balance) VALUES (1, 100000.0)')
             conn.commit()
 
     def log_signal(self, ticker, politician, transaction_date, score):
@@ -57,3 +68,34 @@ class DatabaseManager:
                 VALUES (?, ?, ?)
             ''', (ticker, quantity, buy_price))
             conn.commit()
+
+    def remove_position(self, position_id):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM positions WHERE id = ?', (position_id,))
+            conn.commit()
+
+    def get_open_positions(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, ticker, quantity, buy_price, buy_time FROM positions')
+            return [{"id": row[0], "ticker": row[1], "quantity": row[2], "buy_price": row[3], "buy_time": row[4]} for row in cursor.fetchall()]
+
+    def get_balance(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT cash_balance FROM account WHERE id = 1')
+            row = cursor.fetchone()
+            return row[0] if row else 0.0
+
+    def update_balance(self, amount):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT cash_balance FROM account WHERE id = 1')
+            row = cursor.fetchone()
+            if row:
+                new_balance = row[0] + amount
+                cursor.execute('UPDATE account SET cash_balance = ? WHERE id = 1', (new_balance,))
+                conn.commit()
+                return new_balance
+            return 0.0

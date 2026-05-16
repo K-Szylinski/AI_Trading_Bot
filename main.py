@@ -29,6 +29,9 @@ class DashboardApp(QMainWindow):
         self.status_label = QLabel("Status: Zatrzymany")
         self.status_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         
+        self.portfolio_label = QLabel("Gotówka: $0.00 | Wartość Portfela: $0.00")
+        self.portfolio_label.setStyleSheet("font-weight: bold; font-size: 14px; color: darkgreen;")
+        
         self.run_step_btn = QPushButton("Uruchom analizę (1 krok)")
         self.run_step_btn.clicked.connect(self.run_bot_step)
         
@@ -37,6 +40,8 @@ class DashboardApp(QMainWindow):
         self.auto_btn.toggled.connect(self.toggle_auto_bot)
 
         top_panel.addWidget(self.status_label)
+        top_panel.addStretch()
+        top_panel.addWidget(self.portfolio_label)
         top_panel.addStretch()
         top_panel.addWidget(self.run_step_btn)
         top_panel.addWidget(self.auto_btn)
@@ -52,8 +57,8 @@ class DashboardApp(QMainWindow):
 
         layout.addWidget(QLabel("<b>Otwarte Pozycje Bota:</b>"))
         self.positions_table = QTableWidget()
-        self.positions_table.setColumnCount(4)
-        self.positions_table.setHorizontalHeaderLabels(["Ticker", "Ilość", "Cena Zakupu", "Data Zakupu"])
+        self.positions_table.setColumnCount(6)
+        self.positions_table.setHorizontalHeaderLabels(["Ticker", "Ilość", "Cena Zakupu", "Data Zakupu", "Aktualna Cena", "PnL %"])
         self.positions_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.positions_table)
 
@@ -122,16 +127,48 @@ class DashboardApp(QMainWindow):
             except sqlite3.OperationalError:
                 pass # Tabela może jeszcze nie istnieć
 
-            # Ładowanie pozycji
+            # Ładowanie pozycji i aktualizacja portfela
             try:
                 cursor.execute("SELECT ticker, quantity, buy_price, buy_time FROM positions ORDER BY buy_time DESC")
                 positions = cursor.fetchall()
                 self.positions_table.setRowCount(len(positions))
+                
+                open_positions_value = 0.0
                 for i, row in enumerate(positions):
-                    self.positions_table.setItem(i, 0, QTableWidgetItem(str(row[0])))
-                    self.positions_table.setItem(i, 1, QTableWidgetItem(str(row[1])))
-                    self.positions_table.setItem(i, 2, QTableWidgetItem(f"${row[2]:.2f}"))
+                    ticker = row[0]
+                    quantity = row[1]
+                    buy_price = row[2]
+                    
+                    self.positions_table.setItem(i, 0, QTableWidgetItem(ticker))
+                    self.positions_table.setItem(i, 1, QTableWidgetItem(str(quantity)))
+                    self.positions_table.setItem(i, 2, QTableWidgetItem(f"${buy_price:.2f}"))
                     self.positions_table.setItem(i, 3, QTableWidgetItem(str(row[3])))
+                    
+                    # Pobierz aktualną cenę z cacha (aby nie spowalniać UI)
+                    current_price = self.bot.market_data.get_current_price(ticker)
+                    if current_price > 0:
+                        pnl = ((current_price - buy_price) / buy_price) * 100
+                        open_positions_value += quantity * current_price
+                        
+                        price_item = QTableWidgetItem(f"${current_price:.2f}")
+                        pnl_item = QTableWidgetItem(f"{pnl:.2f}%")
+                        if pnl > 0:
+                            pnl_item.setForeground(QColor("green"))
+                        elif pnl < 0:
+                            pnl_item.setForeground(QColor("red"))
+                            
+                        self.positions_table.setItem(i, 4, price_item)
+                        self.positions_table.setItem(i, 5, pnl_item)
+                    else:
+                        open_positions_value += quantity * buy_price
+                        self.positions_table.setItem(i, 4, QTableWidgetItem("Brak danych"))
+                        self.positions_table.setItem(i, 5, QTableWidgetItem("-"))
+                
+                # Aktualizacja Label z saldem
+                cash = self.db.get_balance()
+                total_value = cash + open_positions_value
+                self.portfolio_label.setText(f"Gotówka: ${cash:,.2f} | Wartość Portfela: ${total_value:,.2f}")
+                
             except sqlite3.OperationalError:
                 pass
 
